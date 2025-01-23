@@ -15,7 +15,8 @@
 
 using namespace std;
 
-class MapToMap {
+class MapToMap
+{
 private:
   // ROS nh
   ros::NodeHandle nh;
@@ -43,7 +44,8 @@ private:
   double mapZpos;
 
 public:
-  MapToMap() {
+  MapToMap()
+  {
     ros::NodeHandle nh_priv("~");
     slopeMax = nh_priv.param("max_slope_ugv", INFINITY);
     slopeEstimationSize = nh_priv.param("slope_estimation_size", 1);
@@ -71,45 +73,60 @@ public:
 
   ~MapToMap() {}
 
-  void mapCallback(const octomap_msgs::Octomap::ConstPtr &msg) {
-    // Set resulution
-    if (MC == NULL) {
+  // 这是一个ROS回调函数,用于处理接收到的八叉树地图消息
+  void mapCallback(const octomap_msgs::Octomap::ConstPtr &msg)
+  {
+    // 如果地图转换器还未初始化,则使用消息中的分辨率创建一个新的转换器
+    if (MC == NULL)
+    {
       resolution = msg->resolution;
       MC = new MapConverter(resolution, slopeEstimationSize, minimumZ,
                             minimumOccupancy);
     }
-    // Convert ROS message to Octomap
+    // 将ROS消息转换为Octomap格式
     octomap::AbstractOcTree *tree = octomap_msgs::msgToMap(*msg);
+    // 将抽象八叉树转换为具体的OcTree类型
     octomap::OcTree *newOcMap = dynamic_cast<octomap::OcTree *>(tree);
     if (!(newOcMap))
       return;
 
+    // 用于存储地图边界的变量
     double min_x, min_y, min_z;
     double max_x, max_y, max_z;
 
+    // 获取新地图的边界值
     newOcMap->getMetricMin(min_x, min_y, min_z);
     newOcMap->getMetricMax(max_x, max_y, max_z);
     vector<double> minMax(6);
-    if (OcMap == NULL) {
+
+    // 如果是第一次接收地图,直接使用新地图的边界
+    if (OcMap == NULL)
+    {
       minMax[0] = min_x;
       minMax[1] = max_x;
       minMax[2] = min_y;
       minMax[3] = max_y;
       OcMap = newOcMap;
-    } else {
-      computeBoundingBox(minMax, newOcMap, OcMap);
-      delete OcMap;
-      OcMap = newOcMap;
     }
+    else
+    {
+      // 否则计算新旧地图的边界框差异
+      computeBoundingBox(minMax, newOcMap, OcMap);
+      delete OcMap;     // 删除旧地图
+      OcMap = newOcMap; // 更新为新地图
+    }
+    // 设置高度范围
     minMax[4] = min_z;
     minMax[5] = max_z;
 
+    // 更新2D地图并发布
     update2Dmap(minMax);
     pub();
   }
 
   void computeBoundingBox(vector<double> &minMax, octomap::OcTree *tree1,
-                          octomap::OcTree *tree2) {
+                          octomap::OcTree *tree2)
+  {
     // Variables to hold min and max coordinates
     double min_x = INFINITY;
     double min_y = INFINITY;
@@ -121,20 +138,25 @@ public:
     // Iterate over all leaf nodes in tree1
     for (octomap::OcTree::leaf_iterator it = tree1->begin_leafs(),
                                         end = tree1->end_leafs();
-         it != end; ++it) {
+         it != end; ++it)
+    {
       octomap::OcTreeKey key = it.getKey();
       octomap::OcTreeNode *node2 = tree2->search(key);
-      if (node2 != nullptr) {
+      if (node2 != nullptr)
+      {
         bool occupied1 = tree1->isNodeOccupied(*it);
         bool occupied2 = tree2->isNodeOccupied(node2);
-        if (occupied1 != occupied2) {
+        if (occupied1 != occupied2)
+        {
           // Node occupancy has changed
           double x = it.getX();
           double y = it.getY();
           double z = it.getZ();
           updateBoundingBox(x, y, z, min_x, min_y, min_z, max_x, max_y, max_z);
         }
-      } else {
+      }
+      else
+      {
         // Node not found in tree2, so it was removed
         double x = it.getX();
         double y = it.getY();
@@ -151,7 +173,8 @@ public:
 
   void updateBoundingBox(double x, double y, double z, double &min_x,
                          double &min_y, double &min_z, double &max_x,
-                         double &max_y, double &max_z) {
+                         double &max_y, double &max_z)
+  {
     if (x < min_x)
       min_x = x;
     if (y < min_y)
@@ -167,7 +190,8 @@ public:
   }
 
   // Update 2D map in the region of the aabb
-  void update2Dmap(vector<double> minMax) {
+  void update2Dmap(vector<double> minMax)
+  {
     for (double mM : minMax)
       if (isinf(mM))
         return;
@@ -178,7 +202,8 @@ public:
     octomap::point3d maxPoint(minMax[1], minMax[3], minMax[5]);
     for (auto it = OcMap->begin_leafs_bbx(minPoint, maxPoint),
               it_end = OcMap->end_leafs_bbx();
-         it != it_end; ++it) {
+         it != it_end; ++it)
+    {
       voxel v;
       v.position.x = it.getX();
       v.position.y = it.getY();
@@ -190,7 +215,8 @@ public:
     MC->updateMap(voxelList, minMax);
   }
 
-  void pub() {
+  void pub()
+  {
     mapMsg.header.stamp = ros::Time::now();
     mapMsg.header.frame_id = mapFrame;
     heightMsg.header = mapMsg.header;
@@ -212,8 +238,10 @@ public:
     slopeMsg.slope.resize(mapMsg.info.width * mapMsg.info.height);
 
     // pub map for UGV
-    if (pubMapUGV.getNumSubscribers() != 0) {
-      if (isinf(slopeMax)) {
+    if (pubMapUGV.getNumSubscribers() != 0)
+    {
+      if (isinf(slopeMax))
+      {
         ROS_WARN(
             "The max slope UGV is not set; obstacles will not be included in "
             "the UGV map. \nAdd \'_max_slope_ugv:=x\' to rosrun command, or "
@@ -221,8 +249,10 @@ public:
       }
 
       mapMsg.header.stamp = ros::Time::now();
-      for (int y = 0; y < MC->map.sizeY(); y++) {
-        for (int x = 0; x < MC->map.sizeX(); x++) {
+      for (int y = 0; y < MC->map.sizeY(); y++)
+      {
+        for (int x = 0; x < MC->map.sizeX(); x++)
+        {
           int index = x + y * MC->map.sizeX();
 
           mapMsg.data[index] = MC->map.get(x, y, slopeMax);
@@ -232,9 +262,12 @@ public:
     }
 
     // pub map for UAV
-    if (pubMapUAV.getNumSubscribers() != 0) {
-      for (int y = 0; y < MC->map.sizeY(); y++) {
-        for (int x = 0; x < MC->map.sizeX(); x++) {
+    if (pubMapUAV.getNumSubscribers() != 0)
+    {
+      for (int y = 0; y < MC->map.sizeY(); y++)
+      {
+        for (int x = 0; x < MC->map.sizeX(); x++)
+        {
           int index = x + y * MC->map.sizeX();
 
           mapMsg.data[index] = MC->map.get(x, y);
@@ -244,13 +277,16 @@ public:
     }
 
     // pub rviz visualization for floor heigth map
-    if (pubMapFloor.getNumSubscribers() != 0) {
+    if (pubMapFloor.getNumSubscribers() != 0)
+    {
       if (MC->map.sizeY() == 0 || MC->map.sizeX() == 0)
         return;
       double vMax = NAN, vMin = NAN;
       // find max min for normalization
-      for (int y = 0; y < MC->map.sizeY(); y++) {
-        for (int x = 0; x < MC->map.sizeX(); x++) {
+      for (int y = 0; y < MC->map.sizeY(); y++)
+      {
+        for (int x = 0; x < MC->map.sizeX(); x++)
+        {
           double v = MC->map.getHeight(x, y);
           if (isnan(v))
             continue;
@@ -265,11 +301,14 @@ public:
         }
       }
 
-      for (int y = 0; y < MC->map.sizeY(); y++) {
-        for (int x = 0; x < MC->map.sizeX(); x++) {
+      for (int y = 0; y < MC->map.sizeY(); y++)
+      {
+        for (int x = 0; x < MC->map.sizeX(); x++)
+        {
           int index = x + y * MC->map.sizeX();
           double value = MC->map.getHeight(x, y);
-          if (!isnan(value)) {
+          if (!isnan(value))
+          {
             value = (value - vMin) / (vMax - vMin) * 199;
             if (value > 99)
               value -= 199; // To get the full color range in the rviz cost map
@@ -281,13 +320,16 @@ public:
       pubMapFloor.publish(mapMsg);
     }
     // pub rviz visualization for cieling heigth map
-    if (pubMapCeiling.getNumSubscribers() != 0) {
+    if (pubMapCeiling.getNumSubscribers() != 0)
+    {
       if (MC->map.sizeY() == 0 || MC->map.sizeX() == 0)
         return;
       double vMax = NAN, vMin = NAN;
       // find max min for normalization
-      for (int y = 0; y < MC->map.sizeY(); y++) {
-        for (int x = 0; x < MC->map.sizeX(); x++) {
+      for (int y = 0; y < MC->map.sizeY(); y++)
+      {
+        for (int x = 0; x < MC->map.sizeX(); x++)
+        {
           double v = MC->map.getHeightTop(x, y);
           if (isnan(v))
             continue;
@@ -302,11 +344,14 @@ public:
         }
       }
 
-      for (int y = 0; y < MC->map.sizeY(); y++) {
-        for (int x = 0; x < MC->map.sizeX(); x++) {
+      for (int y = 0; y < MC->map.sizeY(); y++)
+      {
+        for (int x = 0; x < MC->map.sizeX(); x++)
+        {
           int index = x + y * MC->map.sizeX();
           double value = MC->map.getHeightTop(x, y);
-          if (!isnan(value)) {
+          if (!isnan(value))
+          {
             value = (value - vMin) / (vMax - vMin) * 199;
             if (value > 99)
               value -= 199; // To get the full color range in the rviz cost map
@@ -319,9 +364,12 @@ public:
     }
 
     // pub height map
-    if (pubHeightMap.getNumSubscribers() != 0) {
-      for (int y = 0; y < MC->map.sizeY(); y++) {
-        for (int x = 0; x < MC->map.sizeX(); x++) {
+    if (pubHeightMap.getNumSubscribers() != 0)
+    {
+      for (int y = 0; y < MC->map.sizeY(); y++)
+      {
+        for (int x = 0; x < MC->map.sizeX(); x++)
+        {
           int index = x + y * MC->map.sizeX();
 
           heightMsg.bottom[index] = MC->map.getHeight(x, y);
@@ -332,14 +380,18 @@ public:
     }
 
     // pub rviz visualization fro slope map
-    if (pubMapSlopeVis.getNumSubscribers() != 0) {
+    if (pubMapSlopeVis.getNumSubscribers() != 0)
+    {
       double vMax = slopeMax * 2, vMin = 0;
 
-      for (int y = 0; y < MC->map.sizeY(); y++) {
-        for (int x = 0; x < MC->map.sizeX(); x++) {
+      for (int y = 0; y < MC->map.sizeY(); y++)
+      {
+        for (int x = 0; x < MC->map.sizeX(); x++)
+        {
           int index = x + y * MC->map.sizeX();
           double value = min(MC->map.getSlope(x, y), slopeMax * 2);
-          if (!isnan(value)) {
+          if (!isnan(value))
+          {
             value = (value - vMin) / (vMax - vMin) * 198 + 1;
             if (value > 99)
               value -= 199; // soooo basically, rviz costmap are weird...
@@ -351,9 +403,12 @@ public:
     }
 
     // pub slope map
-    if (pubMapSlope.getNumSubscribers() != 0) {
-      for (int y = 0; y < MC->map.sizeY(); y++) {
-        for (int x = 0; x < MC->map.sizeX(); x++) {
+    if (pubMapSlope.getNumSubscribers() != 0)
+    {
+      for (int y = 0; y < MC->map.sizeY(); y++)
+      {
+        for (int x = 0; x < MC->map.sizeX(); x++)
+        {
           int index = x + y * MC->map.sizeX();
 
           slopeMsg.slope[index] = MC->map.getSlope(x, y);
@@ -364,7 +419,8 @@ public:
   }
 };
 
-int main(int argc, char **argv) {
+int main(int argc, char **argv)
+{
   ros::init(argc, argv, "map_saver");
 
   MapToMap mtm;
